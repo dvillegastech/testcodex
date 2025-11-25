@@ -7,34 +7,58 @@ import re
 
 async def scrape_series_list(page: int = 1) -> List[SeriesBase]:
     """
-    Scrape del listado de series
+    Scrape del listado de series desde /series-online/
     """
-    url = f"{BASE_URL}/series" if page == 1 else f"{BASE_URL}/series/page/{page}"
+    url = f"{BASE_URL}/series-online/" if page == 1 else f"{BASE_URL}/series-online/page/{page}/"
     soup = await fetch_page(url)
 
     if not soup:
         return []
 
     series_list = []
-    items = soup.select(".items .item, .series-list .item, article.item, .tvshows article")
+    # Buscar todas las cards .TPost.B dentro de la lista
+    items = soup.select(".TPost.B, article.TPost.B")
 
     for item in items:
         try:
-            link = item.select_one("a")
-            img = item.select_one("img")
-            title_elem = item.select_one(".title, h2, h3, .data h3")
-            year_elem = item.select_one(".year, .date")
-            rating_elem = item.select_one(".rating, .imdb")
+            # Buscar enlace a la serie
+            link = item.select_one("a[href*='/serie/']")
+            if not link:
+                # Buscar cualquier enlace dentro del item
+                link = item.select_one("a")
+
+            # Título
+            title_elem = item.select_one(".Title, a.Title")
+
+            # Imagen
+            img = item.select_one(".Image img, figure img")
+
+            # Año (en .Qlty generalmente)
+            year_elem = item.select_one(".Qlty")
+
+            # Info adicional (puede contener duración, año, etc)
+            info_elem = item.select_one(".Info")
 
             if link and link.get("href"):
                 url = make_absolute_url(link.get("href"))
+
+                # Extraer año de Info si tiene formato "2025 | 45min"
+                year = None
+                if year_elem:
+                    year = clean_text(year_elem.get_text())
+                elif info_elem:
+                    info_text = clean_text(info_elem.get_text())
+                    year_match = re.search(r'(\d{4})', info_text)
+                    if year_match:
+                        year = year_match.group(1)
+
                 series = SeriesBase(
                     id=extract_id_from_url(url),
-                    title=clean_text(title_elem.get_text() if title_elem else link.get("title", "")),
+                    title=clean_text(title_elem.get_text()) if title_elem else clean_text(link.get_text()),
                     url=url,
                     image=make_absolute_url(img.get("src") or img.get("data-src", "")) if img else None,
-                    year=clean_text(year_elem.get_text()) if year_elem else None,
-                    rating=clean_text(rating_elem.get_text()) if rating_elem else None,
+                    year=year,
+                    rating=None,  # No visible en listado
                 )
                 series_list.append(series)
         except Exception as e:
@@ -48,56 +72,64 @@ async def scrape_series_detail(series_id: str) -> Optional[SeriesDetail]:
     """
     Scrape del detalle de una serie incluyendo temporadas y episodios
     """
-    # Intentar diferentes formatos de URL
-    possible_urls = [
-        f"{BASE_URL}/series/{series_id}",
-        f"{BASE_URL}/serie/{series_id}",
-        f"{BASE_URL}/tv/{series_id}",
-    ]
+    # La URL correcta es /serie/{series_id}/
+    series_url = f"{BASE_URL}/serie/{series_id}/"
+    soup = await fetch_page(series_url)
 
-    soup = None
-    series_url = ""
-
-    for url in possible_urls:
-        soup = await fetch_page(url)
-        if soup:
-            series_url = url
-            break
+    if not soup:
+        # Intentar sin trailing slash
+        series_url = f"{BASE_URL}/serie/{series_id}"
+        soup = await fetch_page(series_url)
 
     if not soup:
         return None
 
     try:
-        # Información básica
-        title_elem = soup.select_one("h1, .title, .data h1")
+        # Información básica - buscar en el header de la serie
+        title_elem = soup.select_one("h1.Title, .Title, h1")
         title = clean_text(title_elem.get_text()) if title_elem else series_id
 
-        img_elem = soup.select_one(".poster img, .thumbnail img, article img")
+        # Imagen principal (poster)
+        img_elem = soup.select_one(".TPost img, .Image img, article img, figure img")
         image = make_absolute_url(img_elem.get("src") or img_elem.get("data-src", "")) if img_elem else None
 
-        description_elem = soup.select_one(".description, .wp-content, .summary p, .texto")
+        # Descripción
+        description_elem = soup.select_one(".Description, p.Description, .TPMvCn p")
         description = clean_text(description_elem.get_text()) if description_elem else None
 
-        year_elem = soup.select_one(".year, .date, .release-date")
-        year = clean_text(year_elem.get_text()) if year_elem else None
+        # Año - puede estar en .Qlty o .Info
+        year_elem = soup.select_one(".Qlty, .Info .Qlty, .year")
+        year = None
+        if year_elem:
+            year_text = clean_text(year_elem.get_text())
+            year_match = re.search(r'(\d{4})', year_text)
+            if year_match:
+                year = year_match.group(1)
 
-        rating_elem = soup.select_one(".rating, .imdb, .dt_rating_vgs")
-        rating = clean_text(rating_elem.get_text()) if rating_elem else None
-
-        # Géneros
+        # Géneros - buscar enlaces a /genero/
         genres = []
-        genre_elems = soup.select(".genres a, .genre a, .sgeneros a")
-        for genre in genre_elems:
-            genres.append(clean_text(genre.get_text()))
+        genre_elems = soup.select("a[href*='/genero/']")
+        for genre in genre_elems[:5]:  # Limitar a 5 géneros
+            genre_text = clean_text(genre.get_text())
+            if genre_text and genre_text not in genres:
+                genres.append(genre_text)
 
-        # Cast
+        # Cast - buscar en metadata si existe
         cast = []
-        cast_elems = soup.select(".cast a, .actor a, .persons a")
-        for actor in cast_elems[:10]:
-            cast.append(clean_text(actor.get_text()))
+        # Patrón común: buscar en textos que contengan "Actores:" o similar
+        cast_section = soup.find(string=re.compile(r'Actores?:', re.I))
+        if cast_section:
+            # Buscar elementos hermanos
+            parent = cast_section.find_parent()
+            if parent:
+                cast_links = parent.find_all("a")
+                for actor in cast_links[:10]:
+                    actor_name = clean_text(actor.get_text())
+                    if actor_name:
+                        cast.append(actor_name)
 
-        # Temporadas y episodios
-        seasons = await scrape_seasons(soup, series_url, series_id)
+        # Temporadas - buscar enlaces a /temporada/
+        seasons = await scrape_seasons_from_links(soup, series_id)
 
         series_detail = SeriesDetail(
             id=series_id,
@@ -106,7 +138,7 @@ async def scrape_series_detail(series_id: str) -> Optional[SeriesDetail]:
             image=image,
             description=description,
             year=year,
-            rating=rating,
+            rating=None,  # No siempre disponible
             genres=genres,
             cast=cast,
             seasons=seasons,
@@ -119,74 +151,147 @@ async def scrape_series_detail(series_id: str) -> Optional[SeriesDetail]:
         return None
 
 
-async def scrape_seasons(soup, series_url: str, series_id: str) -> List[Season]:
+async def scrape_seasons_from_links(soup, series_id: str) -> List[Season]:
     """
-    Extrae las temporadas y episodios de una serie
+    Extrae las temporadas desde los enlaces /temporada/{series-id-N}/
     """
     seasons = []
 
-    # Buscar selectores de temporadas
-    season_selectors = soup.select(".season, .se-c, #seasons .se-q")
+    # Buscar todos los enlaces a temporadas
+    season_links = soup.select("a[href*='/temporada/']")
 
-    if not season_selectors:
-        # Si no hay selector de temporadas, buscar episodios directamente
-        season_selectors = [soup]
-
-    for idx, season_elem in enumerate(season_selectors, 1):
-        try:
-            # Obtener número de temporada
-            season_num_elem = season_elem.select_one(".se-t, .title, .season-number")
-            if season_num_elem:
-                season_text = season_num_elem.get_text()
-                season_match = re.search(r'(\d+)', season_text)
-                season_num = int(season_match.group(1)) if season_match else idx
-            else:
-                season_num = idx
-
-            # Extraer episodios
+    if not season_links:
+        # Si no hay enlaces a temporadas, puede ser una miniserie
+        # Buscar episodios directamente
+        episode_links = soup.select("a[href*='/episodio/']")
+        if episode_links:
             episodes = []
-            episode_elems = season_elem.select(".episode, .episodio, .se-a li, .eps-item")
-
-            for ep_elem in episode_elems:
+            for ep_link in episode_links:
                 try:
-                    ep_link = ep_elem.select_one("a")
-                    if not ep_link or not ep_link.get("href"):
-                        continue
-
                     ep_url = make_absolute_url(ep_link.get("href"))
-                    ep_img = ep_elem.select_one("img")
-                    ep_title_elem = ep_elem.select_one(".title, .episodiotitle, .epl-title")
+                    ep_id = extract_id_from_url(ep_url)
 
-                    # Extraer número de episodio
-                    ep_num_elem = ep_elem.select_one(".episode-number, .numerando, .epl-num")
-                    if ep_num_elem:
-                        ep_text = ep_num_elem.get_text()
-                        ep_match = re.search(r'(\d+)', ep_text)
-                        ep_num = int(ep_match.group(1)) if ep_match else len(episodes) + 1
+                    # Extraer temporada y episodio del formato: serie-slug-SxE
+                    match = re.search(r'-(\d+)x(\d+)', ep_id)
+                    if match:
+                        season_num = int(match.group(1))
+                        ep_num = int(match.group(2))
                     else:
                         ep_num = len(episodes) + 1
+                        season_num = 1
 
                     episode = Episode(
                         number=ep_num,
-                        title=clean_text(ep_title_elem.get_text()) if ep_title_elem else f"Episodio {ep_num}",
+                        title=clean_text(ep_link.get_text()) or f"Episodio {ep_num}",
                         url=ep_url,
-                        image=make_absolute_url(ep_img.get("src") or ep_img.get("data-src", "")) if ep_img else None,
-                        servers=[]  # Los servidores se cargan al consultar el episodio específico
+                        image=None,
+                        servers=[]
                     )
                     episodes.append(episode)
                 except Exception as e:
-                    print(f"Error parsing episode: {e}")
+                    print(f"Error parsing episode link: {e}")
                     continue
 
             if episodes:
-                season = Season(number=season_num, episodes=episodes)
-                seasons.append(season)
+                seasons.append(Season(number=1, episodes=episodes))
+
+        return seasons
+
+    # Procesar enlaces a temporadas
+    season_dict = {}
+
+    for link in season_links:
+        try:
+            season_url = make_absolute_url(link.get("href"))
+            season_slug = extract_id_from_url(season_url)
+
+            # Extraer número de temporada del slug: serie-slug-N
+            season_match = re.search(r'-(\d+)/?$', season_slug)
+            if season_match:
+                season_num = int(season_match.group(1))
+            else:
+                continue
+
+            # Evitar duplicados
+            if season_num in season_dict:
+                continue
+
+            # Obtener episodios de esta temporada
+            episodes = await scrape_season_episodes(season_url)
+
+            if episodes:
+                season_dict[season_num] = Season(number=season_num, episodes=episodes)
 
         except Exception as e:
-            print(f"Error parsing season: {e}")
+            print(f"Error parsing season link: {e}")
             continue
 
+    # Convertir dict a lista ordenada
+    seasons = [season_dict[num] for num in sorted(season_dict.keys())]
+
     return seasons
+
+
+async def scrape_season_episodes(season_url: str) -> List[Episode]:
+    """
+    Extrae los episodios de una temporada específica
+    """
+    soup = await fetch_page(season_url)
+    if not soup:
+        return []
+
+    episodes = []
+
+    # Buscar enlaces a episodios
+    episode_links = soup.select("a[href*='/episodio/']")
+
+    for link in episode_links:
+        try:
+            ep_url = make_absolute_url(link.get("href"))
+            ep_id = extract_id_from_url(ep_url)
+
+            # Extraer número de episodio del formato: serie-slug-SxE
+            match = re.search(r'-\d+x(\d+)', ep_id)
+            if match:
+                ep_num = int(match.group(1))
+            else:
+                ep_num = len(episodes) + 1
+
+            # Buscar imagen y título en el contexto
+            parent = link.find_parent(".TPost") or link.find_parent("article") or link.find_parent("li")
+
+            img = None
+            title_text = clean_text(link.get_text())
+
+            if parent:
+                img_elem = parent.select_one("img")
+                if img_elem:
+                    img = make_absolute_url(img_elem.get("src") or img_elem.get("data-src", ""))
+
+                title_elem = parent.select_one(".Title")
+                if title_elem:
+                    title_text = clean_text(title_elem.get_text())
+
+            episode = Episode(
+                number=ep_num,
+                title=title_text or f"Episodio {ep_num}",
+                url=ep_url,
+                image=img,
+                servers=[]  # Se cargan bajo demanda
+            )
+
+            # Evitar duplicados
+            if not any(e.number == ep_num for e in episodes):
+                episodes.append(episode)
+
+        except Exception as e:
+            print(f"Error parsing episode: {e}")
+            continue
+
+    # Ordenar por número de episodio
+    episodes.sort(key=lambda x: x.number)
+
+    return episodes
 
 
 async def scrape_episode_servers(episode_url: str) -> List[Server]:

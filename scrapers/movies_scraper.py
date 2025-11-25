@@ -2,50 +2,63 @@ from typing import Optional, List
 from schemas import MovieBase, MovieDetail, Server
 from utils import fetch_page, extract_id_from_url, clean_text, make_absolute_url
 from config import BASE_URL
+import re
+
+# NOTA: Las películas están principalmente en pelisflix.cat (sitio hermano)
+# SeriesFlix.boats redirige a pelisflix.cat para el contenido de películas
+# Este scraper mantendrá la funcionalidad genérica para cualquier URL de películas
 
 
 async def scrape_movies_list(page: int = 1) -> List[MovieBase]:
     """
     Scrape del listado de películas
+    NOTA: SeriesFlix redirige las películas a pelisflix.cat
+    Este endpoint puede retornar resultados vacíos o redirigir
     """
+    # SeriesFlix.boats no tiene sección de películas directa
+    # Las películas están en pelisflix.cat
+    # Intentamos igualmente por si hay algún contenido
     url = f"{BASE_URL}/peliculas" if page == 1 else f"{BASE_URL}/peliculas/page/{page}"
 
-    # Intentar diferentes URLs posibles
-    possible_urls = [
-        f"{BASE_URL}/peliculas" if page == 1 else f"{BASE_URL}/peliculas/page/{page}",
-        f"{BASE_URL}/movies" if page == 1 else f"{BASE_URL}/movies/page/{page}",
-        f"{BASE_URL}/pelicula" if page == 1 else f"{BASE_URL}/pelicula/page/{page}",
-    ]
-
-    soup = None
-    for url in possible_urls:
-        soup = await fetch_page(url)
-        if soup:
-            break
+    soup = await fetch_page(url)
 
     if not soup:
         return []
 
     movies_list = []
-    items = soup.select(".items .item, .movies-list .item, article.item, .movies article")
+
+    # Buscar items con las clases .TPost
+    items = soup.select(".TPost.B, .TPost.A, article.TPost")
 
     for item in items:
         try:
-            link = item.select_one("a")
-            img = item.select_one("img")
-            title_elem = item.select_one(".title, h2, h3, .data h3")
-            year_elem = item.select_one(".year, .date")
-            rating_elem = item.select_one(".rating, .imdb")
+            # Buscar enlace principal
+            link = item.select_one("a[href*='/pelicula/'], a[href*='/movie/']")
+            if not link:
+                link = item.select_one("a")
+
+            # Título
+            title_elem = item.select_one(".Title, a.Title")
+
+            # Imagen
+            img = item.select_one(".Image img, figure img")
+
+            # Año desde .Qlty
+            year_elem = item.select_one(".Qlty")
 
             if link and link.get("href"):
                 url = make_absolute_url(link.get("href"))
+
+                # Extraer año si está presente
+                year = clean_text(year_elem.get_text()) if year_elem else None
+
                 movie = MovieBase(
                     id=extract_id_from_url(url),
-                    title=clean_text(title_elem.get_text() if title_elem else link.get("title", "")),
+                    title=clean_text(title_elem.get_text()) if title_elem else clean_text(link.get_text()),
                     url=url,
                     image=make_absolute_url(img.get("src") or img.get("data-src", "")) if img else None,
-                    year=clean_text(year_elem.get_text()) if year_elem else None,
-                    rating=clean_text(rating_elem.get_text()) if rating_elem else None,
+                    year=year,
+                    rating=None,
                 )
                 movies_list.append(movie)
         except Exception as e:
@@ -81,35 +94,52 @@ async def scrape_movie_detail(movie_id: str) -> Optional[MovieDetail]:
 
     try:
         # Información básica
-        title_elem = soup.select_one("h1, .title, .data h1")
+        title_elem = soup.select_one("h1.Title, .Title, h1")
         title = clean_text(title_elem.get_text()) if title_elem else movie_id
 
-        img_elem = soup.select_one(".poster img, .thumbnail img, article img")
+        img_elem = soup.select_one(".TPost img, .Image img, figure img")
         image = make_absolute_url(img_elem.get("src") or img_elem.get("data-src", "")) if img_elem else None
 
-        description_elem = soup.select_one(".description, .wp-content, .summary p, .texto")
+        description_elem = soup.select_one(".Description, p.Description, .TPMvCn p")
         description = clean_text(description_elem.get_text()) if description_elem else None
 
-        year_elem = soup.select_one(".year, .date, .release-date")
-        year = clean_text(year_elem.get_text()) if year_elem else None
+        # Año desde .Qlty o .Info
+        year_elem = soup.select_one(".Qlty, .Info .Qlty")
+        year = None
+        if year_elem:
+            year_text = clean_text(year_elem.get_text())
+            year_match = re.search(r'(\d{4})', year_text)
+            if year_match:
+                year = year_match.group(1)
 
-        rating_elem = soup.select_one(".rating, .imdb, .dt_rating_vgs")
-        rating = clean_text(rating_elem.get_text()) if rating_elem else None
+        # Duración desde .Info
+        duration = None
+        info_elem = soup.select_one(".Info")
+        if info_elem:
+            info_text = clean_text(info_elem.get_text())
+            duration_match = re.search(r'(\d+\s*min)', info_text)
+            if duration_match:
+                duration = duration_match.group(1)
 
-        duration_elem = soup.select_one(".duration, .runtime, .time")
-        duration = clean_text(duration_elem.get_text()) if duration_elem else None
-
-        # Géneros
+        # Géneros - buscar enlaces a /genero/
         genres = []
-        genre_elems = soup.select(".genres a, .genre a, .sgeneros a")
-        for genre in genre_elems:
-            genres.append(clean_text(genre.get_text()))
+        genre_elems = soup.select("a[href*='/genero/']")
+        for genre in genre_elems[:5]:
+            genre_text = clean_text(genre.get_text())
+            if genre_text and genre_text not in genres:
+                genres.append(genre_text)
 
-        # Cast
+        # Cast - buscar en metadata
         cast = []
-        cast_elems = soup.select(".cast a, .actor a, .persons a")
-        for actor in cast_elems[:10]:
-            cast.append(clean_text(actor.get_text()))
+        cast_section = soup.find(string=re.compile(r'Actores?:', re.I))
+        if cast_section:
+            parent = cast_section.find_parent()
+            if parent:
+                cast_links = parent.find_all("a")
+                for actor in cast_links[:10]:
+                    actor_name = clean_text(actor.get_text())
+                    if actor_name:
+                        cast.append(actor_name)
 
         # Servidores
         servers = await scrape_movie_servers(soup)

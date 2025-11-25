@@ -7,61 +7,50 @@ import urllib.parse
 
 async def scrape_search(query: str) -> SearchResult:
     """
-    Scrape de los resultados de búsqueda
+    Scrape de los resultados de búsqueda usando ?s= parameter
     """
     encoded_query = urllib.parse.quote(query)
 
-    # Intentar diferentes formatos de URL de búsqueda
-    possible_urls = [
-        f"{BASE_URL}/?s={encoded_query}",
-        f"{BASE_URL}/buscar?s={encoded_query}",
-        f"{BASE_URL}/search?q={encoded_query}",
-        f"{BASE_URL}/search/{encoded_query}",
-    ]
+    # La búsqueda usa el parámetro ?s= estándar de WordPress
+    search_url = f"{BASE_URL}/?s={encoded_query}"
 
-    soup = None
-    for url in possible_urls:
-        soup = await fetch_page(url)
-        if soup:
-            break
+    soup = await fetch_page(search_url)
 
     if not soup:
         return SearchResult()
 
     search_result = SearchResult()
 
-    # Buscar todos los items de resultados
-    items = soup.select(".items .item, .search-results .item, article.item, .result-item")
+    # Buscar items con las clases .TPost (A, B, o C)
+    items = soup.select(".TPost.B, .TPost.A, .TPost.C, article.TPost")
 
     for item in items:
         try:
-            link = item.select_one("a")
+            # Buscar enlace principal
+            link = item.select_one("a[href*='/serie/'], a[href*='/pelicula/']")
+            if not link:
+                link = item.select_one("a")
+
             if not link or not link.get("href"):
                 continue
 
             url = make_absolute_url(link.get("href"))
-            img = item.select_one("img")
-            title_elem = item.select_one(".title, h2, h3, .data h3")
-            year_elem = item.select_one(".year, .date")
-            rating_elem = item.select_one(".rating, .imdb")
 
-            title = clean_text(title_elem.get_text() if title_elem else link.get("title", ""))
-            image = make_absolute_url(img.get("src") or img.get("data-src", "")) if img else None
+            # Título
+            title_elem = item.select_one(".Title, a.Title, h3.Title span")
+
+            # Imagen
+            img = item.select_one(".Image img, figure img")
+
+            # Año desde .Qlty o .Info
+            year_elem = item.select_one(".Qlty")
             year = clean_text(year_elem.get_text()) if year_elem else None
-            rating = clean_text(rating_elem.get_text()) if rating_elem else None
 
-            # Determinar si es serie o película
-            # Comúnmente las series tienen indicadores como "type", "badge", o la URL contiene "series"
-            type_elem = item.select_one(".type, .badge, .item-type")
-            type_text = clean_text(type_elem.get_text()).lower() if type_elem else ""
+            title = clean_text(title_elem.get_text()) if title_elem else clean_text(link.get_text())
+            image = make_absolute_url(img.get("src") or img.get("data-src", "")) if img else None
 
-            is_series = (
-                "serie" in type_text or
-                "tv" in type_text or
-                "/series/" in url or
-                "/serie/" in url or
-                "/tv/" in url
-            )
+            # Determinar tipo por URL (seriesflix.boats = series, otras pueden ser películas)
+            is_series = "/serie/" in url
 
             item_id = extract_id_from_url(url)
 
@@ -72,17 +61,18 @@ async def scrape_search(query: str) -> SearchResult:
                     url=url,
                     image=image,
                     year=year,
-                    rating=rating,
+                    rating=None,
                 )
                 search_result.series.append(series)
             else:
+                # Las películas pueden estar en pelisflix.cat o similares
                 movie = MovieBase(
                     id=item_id,
                     title=title,
                     url=url,
                     image=image,
                     year=year,
-                    rating=rating,
+                    rating=None,
                 )
                 search_result.movies.append(movie)
 

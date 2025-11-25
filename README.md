@@ -292,9 +292,30 @@ series = response.json()
 ## Notas Importantes
 
 - La API hace scraping en tiempo real, las respuestas pueden tardar algunos segundos
-- Los selectores CSS están diseñados para ser flexibles ante cambios en el sitio
-- Se recomienda implementar caché para mejorar rendimiento en producción
+- Los selectores CSS están basados en la estructura real del sitio (clases `.TPost`, `.Title`, `.Image`, `.Qlty`)
+- **Películas**: SeriesFlix.boats redirige las películas a su sitio hermano pelisflix.cat
+- Las temporadas se cargan desde URLs `/temporada/{serie-id-N}/`
+- Los episodios siguen el formato `/episodio/{serie-slug-SxE}/`
+- Se recomienda implementar caché (Redis) para mejorar rendimiento en producción
 - Los servidores de episodios se cargan bajo demanda
+
+## Estructura Real del Sitio
+
+SeriesFlix.boats utiliza las siguientes clases CSS:
+- `.TPost.A` - Cards destacadas/hero
+- `.TPost.B` - Cards estándar en grid
+- `.TPost.C` - Cards compactas (listas)
+- `.Title` - Títulos
+- `.Image` - Contenedor de imágenes
+- `.Qlty` - Calidad/Año
+- `.Info` - Metadatos adicionales
+
+URLs importantes:
+- Listado de series: `/series-online/` y `/series-online/page/{N}/`
+- Detalle de serie: `/serie/{slug}/`
+- Temporada: `/temporada/{serie-slug-N}/`
+- Episodio: `/episodio/{serie-slug-SxE}/`
+- Búsqueda: `/?s={query}`
 
 ## Consideraciones Legales
 
