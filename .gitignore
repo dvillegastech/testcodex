@@ -9,7 +9,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
 lib64/
 parts/
 sdist/
@@ -33,3 +32,13 @@ htmlcov/
 .DS_Store
 .vscode/
 .idea/
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# Vercel
+.vercel

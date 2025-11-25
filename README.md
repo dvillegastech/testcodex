@@ -1,8 +1,14 @@
 # SeriesFlix Scraping API
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdvillegastech%2Ftestcodex%2Ftree%2Fvercel)
+
 API REST para extraer información de SeriesFlix mediante scraping web.
 
 **IMPORTANTE**: SeriesFlix.boats es exclusivamente para SERIES. Para películas, existe pelisflix.cat (sitio hermano separado).
+
+## 🚀 Deploy Rápido en Vercel
+
+Haz clic en el botón de arriba para deployar esta API en Vercel en menos de 1 minuto.
 
 ## Características
 
@@ -12,12 +18,12 @@ API REST para extraer información de SeriesFlix mediante scraping web.
 - **Temporadas y Episodios**: Extracción completa de todas las temporadas y sus episodios
 - **Servidores**: Extracción de enlaces de streaming para episodios
 
-## Instalación
+## Instalación Local
 
 ### Requisitos
 
-- Python 3.8+
-- pip
+- Node.js 16+
+- npm o yarn
 
 ### Setup
 
@@ -25,20 +31,15 @@ API REST para extraer información de SeriesFlix mediante scraping web.
 ```bash
 git clone <repository-url>
 cd testcodex
+git checkout vercel
 ```
 
-2. Crea un entorno virtual:
+2. Instala las dependencias:
 ```bash
-python -m venv venv
-source venv/bin/activate  # En Windows: venv\Scripts\activate
+npm install
 ```
 
-3. Instala las dependencias:
-```bash
-pip install -r requirements.txt
-```
-
-4. Configura las variables de entorno (opcional):
+3. Configura las variables de entorno (opcional):
 ```bash
 cp .env.example .env
 # Edita .env si necesitas cambiar configuraciones
@@ -46,23 +47,18 @@ cp .env.example .env
 
 ## Uso
 
-### Iniciar el servidor
+### Iniciar el servidor local
 
 ```bash
-python main.py
+npm start
 ```
 
-O con uvicorn directamente:
+O para desarrollo:
 ```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+npm run dev
 ```
 
 La API estará disponible en: `http://localhost:8000`
-
-### Documentación interactiva
-
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
 
 ## Endpoints
 
@@ -171,25 +167,27 @@ Busca series por título.
 }
 ```
 
+## Tecnología
+
+Esta API está construida con:
+- **Node.js** + **Express** - Servidor web
+- **Axios** - Cliente HTTP para peticiones
+- **Cheerio** - Parser HTML (similar a jQuery)
+- **Vercel** - Plataforma de deployment
+
 ## Estructura del Proyecto
 
 ```
 testcodex/
-├── main.py              # Aplicación FastAPI principal
-├── config.py            # Configuración y variables
-├── schemas.py           # Modelos Pydantic
-├── utils.py             # Utilidades compartidas
-├── requirements.txt     # Dependencias
-├── routers/            # Endpoints de la API
-│   ├── home.py
-│   ├── series.py
-│   ├── movies.py
-│   └── search.py
-└── scrapers/           # Lógica de scraping
-    ├── home_scraper.py
-    ├── series_scraper.py
-    ├── movies_scraper.py
-    └── search_scraper.py
+├── index.js            # Aplicación Express principal
+├── package.json        # Dependencias Node.js
+├── vercel.json         # Configuración Vercel
+└── lib/
+    ├── utils.js        # Utilidades compartidas
+    └── scrapers/       # Lógica de scraping
+        ├── homeScraper.js
+        ├── seriesScraper.js
+        └── searchScraper.js
 ```
 
 ## Ejemplos de Uso
