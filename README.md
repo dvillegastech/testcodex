@@ -1,6 +1,6 @@
 # SeriesFlix Scraping API
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdvillegastech%2Ftestcodex%2Ftree%2Fvercel)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdvillegastech%2Ftestcodex)
 
 API REST para extraer información de SeriesFlix mediante scraping web.
 
