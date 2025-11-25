@@ -7,7 +7,7 @@ import uvicorn
 
 app = FastAPI(
     title="SeriesFlix Scraping API",
-    description="API REST para obtener información de SeriesFlix mediante scraping",
+    description="API REST para obtener información de SERIES de SeriesFlix mediante scraping. NOTA: SeriesFlix.boats solo tiene series, no películas.",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -32,8 +32,9 @@ app.include_router(search.router)
 @app.get("/")
 async def root():
     return {
-        "message": "SeriesFlix Scraping API",
+        "message": "SeriesFlix Scraping API - Solo SERIES",
         "version": "1.0.0",
+        "note": "SeriesFlix.boats es exclusivamente para series. Para películas, usar pelisflix.cat",
         "docs": "/docs",
         "endpoints": {
             "home": "/api/home",
@@ -41,10 +42,6 @@ async def root():
                 "list": "/api/series?page=1",
                 "detail": "/api/series/{series_id}",
                 "episode_servers": "/api/series/episode/servers?episode_url=URL"
-            },
-            "movies": {
-                "list": "/api/movies?page=1",
-                "detail": "/api/movies/{movie_id}"
             },
             "search": "/api/search?q=query"
         }

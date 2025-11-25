@@ -8,6 +8,7 @@ import urllib.parse
 async def scrape_search(query: str) -> SearchResult:
     """
     Scrape de los resultados de búsqueda usando ?s= parameter
+    Solo busca SERIES (SeriesFlix.boats no tiene películas)
     """
     encoded_query = urllib.parse.quote(query)
 
@@ -26,8 +27,8 @@ async def scrape_search(query: str) -> SearchResult:
 
     for item in items:
         try:
-            # Buscar enlace principal
-            link = item.select_one("a[href*='/serie/'], a[href*='/pelicula/']")
+            # Buscar enlace a serie
+            link = item.select_one("a[href*='/serie/']")
             if not link:
                 link = item.select_one("a")
 
@@ -36,45 +37,32 @@ async def scrape_search(query: str) -> SearchResult:
 
             url = make_absolute_url(link.get("href"))
 
+            # Solo procesar si es una serie
+            if "/serie/" not in url:
+                continue
+
             # Título
             title_elem = item.select_one(".Title, a.Title, h3.Title span")
 
             # Imagen
             img = item.select_one(".Image img, figure img")
 
-            # Año desde .Qlty o .Info
+            # Año desde .Qlty
             year_elem = item.select_one(".Qlty")
             year = clean_text(year_elem.get_text()) if year_elem else None
 
             title = clean_text(title_elem.get_text()) if title_elem else clean_text(link.get_text())
             image = make_absolute_url(img.get("src") or img.get("data-src", "")) if img else None
 
-            # Determinar tipo por URL (seriesflix.boats = series, otras pueden ser películas)
-            is_series = "/serie/" in url
-
-            item_id = extract_id_from_url(url)
-
-            if is_series:
-                series = SeriesBase(
-                    id=item_id,
-                    title=title,
-                    url=url,
-                    image=image,
-                    year=year,
-                    rating=None,
-                )
-                search_result.series.append(series)
-            else:
-                # Las películas pueden estar en pelisflix.cat o similares
-                movie = MovieBase(
-                    id=item_id,
-                    title=title,
-                    url=url,
-                    image=image,
-                    year=year,
-                    rating=None,
-                )
-                search_result.movies.append(movie)
+            series = SeriesBase(
+                id=extract_id_from_url(url),
+                title=title,
+                url=url,
+                image=image,
+                year=year,
+                rating=None,
+            )
+            search_result.series.append(series)
 
         except Exception as e:
             print(f"Error parsing search result: {e}")

@@ -57,10 +57,8 @@ class MovieDetail(MovieBase):
 class HomeContent(BaseModel):
     featured: List[SeriesBase] = []
     trending_series: List[SeriesBase] = []
-    trending_movies: List[MovieBase] = []
     recent_episodes: List[dict] = []
 
 
 class SearchResult(BaseModel):
     series: List[SeriesBase] = []
-    movies: List[MovieBase] = []

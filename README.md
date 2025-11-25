@@ -2,13 +2,15 @@
 
 API REST para extraer información de SeriesFlix mediante scraping web.
 
+**IMPORTANTE**: SeriesFlix.boats es exclusivamente para SERIES. Para películas, existe pelisflix.cat (sitio hermano separado).
+
 ## Características
 
-- **Home**: Contenido destacado, series y películas en tendencia
+- **Home**: Contenido destacado y series en tendencia
 - **Series**: Listado de series con detalles completos de temporadas y episodios
-- **Películas**: Listado de películas con servidores de streaming
-- **Búsqueda**: Búsqueda de series y películas por título
-- **Servidores**: Extracción de enlaces de streaming para episodios y películas
+- **Búsqueda**: Búsqueda de series por título
+- **Temporadas y Episodios**: Extracción completa de todas las temporadas y sus episodios
+- **Servidores**: Extracción de enlaces de streaming para episodios
 
 ## Instalación
 
@@ -68,14 +70,13 @@ La API estará disponible en: `http://localhost:8000`
 
 #### GET `/api/home`
 
-Obtiene el contenido de la página principal.
+Obtiene el contenido de la página principal con series destacadas y recientes.
 
 **Respuesta:**
 ```json
 {
   "featured": [...],
   "trending_series": [...],
-  "trending_movies": [...],
   "recent_episodes": [...]
 }
 ```
@@ -154,61 +155,11 @@ Obtiene los servidores de un episodio específico.
 ]
 ```
 
-### Películas
-
-#### GET `/api/movies?page=1`
-
-Lista todas las películas con paginación.
-
-**Parámetros:**
-- `page` (opcional): Número de página (default: 1)
-
-**Respuesta:**
-```json
-[
-  {
-    "id": "inception",
-    "title": "Inception",
-    "url": "https://seriesflix.boats/pelicula/inception",
-    "image": "https://...",
-    "year": "2010",
-    "rating": "8.8"
-  }
-]
-```
-
-#### GET `/api/movies/{movie_id}`
-
-Obtiene el detalle completo de una película.
-
-**Respuesta:**
-```json
-{
-  "id": "inception",
-  "title": "Inception",
-  "url": "https://...",
-  "image": "https://...",
-  "year": "2010",
-  "rating": "8.8",
-  "description": "...",
-  "genres": ["Sci-Fi", "Thriller"],
-  "cast": ["Leonardo DiCaprio"],
-  "duration": "148 min",
-  "servers": [
-    {
-      "name": "Servidor 1",
-      "url": "https://...",
-      "quality": "HD"
-    }
-  ]
-}
-```
-
 ### Búsqueda
 
 #### GET `/api/search?q=query`
 
-Busca series y películas por título.
+Busca series por título.
 
 **Parámetros:**
 - `q` (requerido): Término de búsqueda
@@ -216,8 +167,7 @@ Busca series y películas por título.
 **Respuesta:**
 ```json
 {
-  "series": [...],
-  "movies": [...]
+  "series": [...]
 }
 ```
 
@@ -254,19 +204,13 @@ curl http://localhost:8000/api/home
 curl http://localhost:8000/api/series?page=1
 
 # Detalle de serie
-curl http://localhost:8000/api/series/breaking-bad
+curl http://localhost:8000/api/series/solo-asesinatos-en-el-edificio-ztei
 
 # Servidores de episodio
-curl "http://localhost:8000/api/series/episode/servers?episode_url=https://seriesflix.boats/..."
-
-# Listar películas
-curl http://localhost:8000/api/movies?page=1
-
-# Detalle de película
-curl http://localhost:8000/api/movies/inception
+curl "http://localhost:8000/api/series/episode/servers?episode_url=https://seriesflix.boats/episodio/solo-asesinatos-en-el-edificio-ztei-1x1/"
 
 # Búsqueda
-curl "http://localhost:8000/api/search?q=avengers"
+curl "http://localhost:8000/api/search?q=solo"
 ```
 
 ### Python
@@ -291,13 +235,14 @@ series = response.json()
 
 ## Notas Importantes
 
+- **Solo SERIES**: SeriesFlix.boats es exclusivamente para series. Para películas, usar pelisflix.cat
 - La API hace scraping en tiempo real, las respuestas pueden tardar algunos segundos
 - Los selectores CSS están basados en la estructura real del sitio (clases `.TPost`, `.Title`, `.Image`, `.Qlty`)
-- **Películas**: SeriesFlix.boats redirige las películas a su sitio hermano pelisflix.cat
-- Las temporadas se cargan desde URLs `/temporada/{serie-id-N}/`
+- Las temporadas se cargan desde URLs `/temporada/{serie-slug-N}/`
 - Los episodios siguen el formato `/episodio/{serie-slug-SxE}/`
+- Ejemplo real: `https://seriesflix.boats/episodio/solo-asesinatos-en-el-edificio-ztei-1x1/`
 - Se recomienda implementar caché (Redis) para mejorar rendimiento en producción
-- Los servidores de episodios se cargan bajo demanda
+- Los servidores de episodios se cargan bajo demanda con el endpoint específico
 
 ## Estructura Real del Sitio
 
