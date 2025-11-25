@@ -3,6 +3,7 @@ const cors = require('cors');
 const { scrapeHome } = require('./lib/scrapers/homeScraper');
 const { scrapeSeriesList, scrapeSeriesDetail, scrapeEpisodeServers } = require('./lib/scrapers/seriesScraper');
 const { scrapeSearch } = require('./lib/scrapers/searchScraper');
+const { extractVideoUrl } = require('./lib/utils');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -15,7 +16,7 @@ app.use(express.json());
 app.get('/', (req, res) => {
   res.json({
     message: 'SeriesFlix Scraping API - Solo SERIES',
-    version: '1.0.0',
+    version: '1.1.0',
     note: 'SeriesFlix.boats es exclusivamente para series. Para películas, usar pelisflix.cat',
     docs: '/docs',
     endpoints: {
@@ -24,6 +25,9 @@ app.get('/', (req, res) => {
         list: '/api/series?page=1',
         detail: '/api/series/{series_id}',
         episode_servers: '/api/series/episode/servers?episode_url=URL',
+      },
+      video: {
+        resolve: '/api/video/resolve?player_url=URL',
       },
       search: '/api/search?q=query',
     },
@@ -93,6 +97,31 @@ app.get('/api/series/episode/servers', async (req, res) => {
     res.json(servers);
   } catch (error) {
     console.error('Error in /api/series/episode/servers:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Video URL resolver endpoint
+app.get('/api/video/resolve', async (req, res) => {
+  try {
+    const { player_url } = req.query;
+    if (!player_url) {
+      return res.status(400).json({ error: 'player_url parameter is required' });
+    }
+
+    const videoUrl = await extractVideoUrl(player_url);
+
+    if (!videoUrl) {
+      return res.status(404).json({ error: 'No se pudo extraer la URL del video desde el player' });
+    }
+
+    res.json({
+      player_url,
+      video_url: videoUrl,
+      type: videoUrl.includes('.m3u8') ? 'HLS/M3U8' : 'Direct'
+    });
+  } catch (error) {
+    console.error('Error in /api/video/resolve:', error);
     res.status(500).json({ error: error.message });
   }
 });
