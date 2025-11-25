@@ -1,9 +1,11 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
+const axios = require('axios');
 const { scrapeHome } = require('./lib/scrapers/homeScraper');
 const { scrapeSeriesList, scrapeSeriesDetail, scrapeEpisodeServers } = require('./lib/scrapers/seriesScraper');
 const { scrapeSearch } = require('./lib/scrapers/searchScraper');
-const { extractVideoUrl } = require('./lib/utils');
+const { extractVideoUrl, HEADERS } = require('./lib/utils');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -12,8 +14,11 @@ const PORT = process.env.PORT || 8000;
 app.use(cors());
 app.use(express.json());
 
-// Root endpoint
-app.get('/', (req, res) => {
+// Serve static files from public directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// API info endpoint (for API consumers)
+app.get('/api', (req, res) => {
   res.json({
     message: 'SeriesFlix Scraping API - Solo SERIES',
     version: '1.1.0',
@@ -123,6 +128,132 @@ app.get('/api/video/resolve', async (req, res) => {
   } catch (error) {
     console.error('Error in /api/video/resolve:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Video proxy endpoint to bypass CORS
+app.get('/api/video/proxy', async (req, res) => {
+  try {
+    const { url } = req.query;
+    if (!url) {
+      return res.status(400).json({ error: 'url parameter is required' });
+    }
+
+    // Determinar si es un archivo de video (.ts) o un manifest
+    const isVideoSegment = url.endsWith('.ts') || url.includes('.ts?');
+    const isM3u8 = url.includes('.m3u8');
+    
+    // Detectar si es una URL de streaming (iboprufeno.lat, cfglobalcdn, etc.)
+    const isStreamingUrl = url.includes('iboprufeno.lat') || url.includes('?s=') || url.includes('cfglobalcdn.com');
+    
+    // Determinar el Referer correcto según el dominio
+    let referer = 'https://nuuuppp.sbs/';
+    if (url.includes('cfglobalcdn.com') || url.includes('waaw.tv')) {
+      referer = 'https://waaw.tv/';
+    }
+
+    // Configurar el tipo de respuesta según el tipo de archivo
+    const config = {
+      headers: {
+        ...HEADERS,
+        'Referer': referer,
+        'Origin': referer.replace(/\/$/, ''),
+      },
+      responseType: isVideoSegment ? 'arraybuffer' : 'text',
+      timeout: 30000,
+      maxRedirects: 5,
+      validateStatus: status => status >= 200 && status < 400,
+    };
+
+    // Hacer la petición
+    const response = await axios.get(url, config);
+
+    // Configurar headers CORS
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
+      'Access-Control-Allow-Headers': 'Range, Content-Type, Content-Length',
+      'Access-Control-Expose-Headers': 'Content-Length, Content-Range',
+    };
+
+    // Si es un segmento de video (.ts), reenviarlo directamente
+    if (isVideoSegment) {
+      res.set({
+        ...corsHeaders,
+        'Content-Type': 'video/mp2t',
+        'Content-Length': response.data.length,
+      });
+      return res.send(Buffer.from(response.data));
+    }
+
+    // Detectar si la respuesta es un manifest M3U8 (por contenido)
+    const content = response.data;
+    const looksLikeM3u8 = typeof content === 'string' && content.trim().startsWith('#EXTM3U');
+
+    // Si es un manifest .m3u8 (por URL o por contenido), procesarlo
+    if (isM3u8 || looksLikeM3u8 || isStreamingUrl) {
+      res.set({
+        ...corsHeaders,
+        'Content-Type': 'application/vnd.apple.mpegurl',
+      });
+
+      if (typeof content === 'string' && content.includes('#EXTM3U')) {
+        // Extraer la URL base
+        const urlObj = new URL(url);
+        const baseUrl = `${urlObj.protocol}//${urlObj.host}${urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1)}`;
+
+        // Reescribir URLs en el manifest
+        const processedContent = content.split('\n').map(line => {
+          const trimmed = line.trim();
+
+          // Ignorar líneas vacías y comentarios
+          if (!trimmed || trimmed.startsWith('#')) {
+            return line;
+          }
+
+          // Si la línea es una URL absoluta, hacer proxy
+          if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+            return `/api/video/proxy?url=${encodeURIComponent(trimmed)}`;
+          }
+
+          // Si la línea es una URL relativa
+          if (!trimmed.startsWith('/')) {
+            const fullUrl = baseUrl + trimmed;
+            return `/api/video/proxy?url=${encodeURIComponent(fullUrl)}`;
+          }
+
+          // URL relativa desde la raíz
+          const fullUrl = `${urlObj.protocol}//${urlObj.host}${trimmed}`;
+          return `/api/video/proxy?url=${encodeURIComponent(fullUrl)}`;
+        }).join('\n');
+
+        return res.send(processedContent);
+      }
+
+      return res.send(content);
+    }
+
+    // Para otros tipos de archivo
+    res.set({
+      ...corsHeaders,
+      'Content-Type': response.headers['content-type'] || 'application/octet-stream',
+    });
+    res.send(response.data);
+
+  } catch (error) {
+    console.error('Error in /api/video/proxy:', error.message);
+
+    // Si el error es de red, dar más detalles
+    if (error.code === 'ECONNABORTED') {
+      return res.status(504).json({ error: 'Timeout al obtener el video' });
+    }
+    if (error.response) {
+      return res.status(error.response.status).json({
+        error: `Error del servidor: ${error.response.status}`
+      });
+    }
+
+    res.status(500).json({ error: 'Error proxying video content: ' + error.message });
   }
 });
 
